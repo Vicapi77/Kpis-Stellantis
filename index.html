@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Operativo Stellantis</title>
+    
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .animate-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // 1. CONFIGURACIÓN DE FIREBASE CON TUS NUEVAS CREDENCIALES
+        const firebaseConfig = {
+            apiKey: "AIzaSyB5OvYG9qGFrwQGCIIk2ps6R7tBDrhHqrY",
+            authDomain: "kpis-stellantis.firebaseapp.com",
+            projectId: "kpis-stellantis",
+            storageBucket: "kpis-stellantis.firebasestorage.app",
+            messagingSenderId: "618714680596",
+            appId: "1:618714680596:web:8b7d14cb1dd4e6a9dd0601",
+            measurementId: "G-WDXSRLJ6VB"
+        };
+
+        // Inicializar Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
+        // 2. COMPONENTE PRINCIPAL
+        const Dashboard = () => {
+            const [incidents, setIncidents] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [plantaFiltro, setPlantaFiltro] = React.useState('Todas');
+
+            // Cargar datos de Firebase en tiempo real
+            React.useEffect(() => {
+                const unsubscribe = db.collection("datos_operativos")
+                    .orderBy("date", "desc")
+                    .onSnapshot((snapshot) => {
+                        const docs = [];
+                        snapshot.forEach(doc => docs.push({ id: doc.id, ...doc.data() }));
+                        setIncidents(docs);
+                        setLoading(false);
+                    });
+                return () => unsubscribe();
+            }, []);
+
+            // Cálculos de KPIs basados en los datos
+            const stats = React.useMemo(() => {
+                const filtered = plantaFiltro === 'Todas' ? incidents : incidents.filter(i => i.plant === plantaFiltro);
+                const total = filtered.length;
+                const totalImp = filtered.reduce((acc, curr) => acc + (parseInt(curr.imp) || 0), 0);
+                const avgService = total > 0 
+                    ? (filtered.reduce((acc, curr) => acc + (parseFloat(curr.serviceLevel) || 0), 0) / total).toFixed(1) 
+                    : 0;
+                return { total, totalImp, avgService };
+            }, [incidents, plantaFiltro]);
+
+            // Función para agregar datos (Simulación del botón del modal que pusiste)
+            const addData = async () => {
+                const date = new Date().toLocaleDateString('es-MX');
+                await db.collection("datos_operativos").add({
+                    date: date,
+                    plant: "Camiones",
+                    shift: "T1",
+                    imp: Math.floor(Math.random() * 5),
+                    noImp: Math.floor(Math.random() * 10),
+                    serviceLevel: 98.5,
+                    accidents: 0
+                });
+            };
+
+            if (loading) return <div className="flex h-screen items-center justify-center text-slate-500 font-bold">Cargando Dashboard Stellantis...</div>;
+
+            return (
+                <div className="p-4 max-w-7xl mx-auto">
+                    {/* Header */}
+                    <div className="flex justify-between items-center bg-slate-800 text-white p-6 rounded-xl shadow-lg mb-6">
+                        <div>
+                            <h1 className="text-2xl font-bold">Dashboard Stellantis</h1>
+                            <p className="text-slate-400 text-sm">KPIs Operativos & Incidencias</p>
+                        </div>
+                        <div className="flex gap-4">
+                             <select 
+                                className="bg-slate-700 text-white border-none rounded-lg px-4 py-2 text-sm"
+                                value={plantaFiltro}
+                                onChange={(e) => setPlantaFiltro(e.target.value)}
+                             >
+                                {['Todas', 'Camiones', 'Extensión', 'Van', 'Norte', 'Sur'].map(p => <option key={p} value={p}>{p}</option>)}
+                             </select>
+                             <button onClick={addData} className="bg-rose-600 hover:bg-rose-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
+                                + Nuevo Registro
+                             </button>
+                        </div>
+                    </div>
+
+                    {/* KPIs Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-slate-800">
+                            <h3 className="text-slate-500 text-xs font-bold uppercase">Total Registros</h3>
+                            <p className="text-3xl font-black text-slate-800">{stats.total}</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-rose-600">
+                            <h3 className="text-slate-500 text-xs font-bold uppercase">Imputables Totales</h3>
+                            <p className="text-3xl font-black text-rose-600">{stats.totalImp}</p>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-emerald-600">
+                            <h3 className="text-slate-500 text-xs font-bold uppercase">Promedio Servicio</h3>
+                            <p className="text-3xl font-black text-emerald-600">{stats.avgService}%</p>
+                        </div>
+                    </div>
+
+                    {/* Tabla de Historial */}
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-700">
+                            Historial Operativo Reciente
+                        </div>
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <th className="p-4 border-b">Fecha</th>
+                                    <th className="p-4 border-b">Planta / Turno</th>
+                                    <th className="p-4 border-b">Imputables</th>
+                                    <th className="p-4 border-b">No Imputables</th>
+                                    <th className="p-4 border-b">Servicio</th>
+                                    <th className="p-4 border-b">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {incidents.filter(i => plantaFiltro === 'Todas' || i.plant === plantaFiltro).map((item) => (
+                                    <tr key={item.id} className="hover:bg-slate-50 transition-colors border-b last:border-0 text-sm">
+                                        <td className="p-4 font-medium">{item.date}</td>
+                                        <td className="p-4 text-slate-600">{item.plant} - <span className="text-xs bg-slate-200 px-2 py-1 rounded">{item.shift}</span></td>
+                                        <td className="p-4 font-bold text-rose-600">{item.imp}</td>
+                                        <td className="p-4 text-slate-500">{item.noImp}</td>
+                                        <td className="p-4">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden max-w-[60px]">
+                                                    <div className="bg-emerald-500 h-full" style={{width: `${item.serviceLevel}%`}}></div>
+                                                </div>
+                                                <span className="font-bold">{item.serviceLevel}%</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-4 text-rose-600 cursor-pointer font-bold" onClick={() => db.collection("datos_operativos").doc(item.id).delete()}>Eliminar</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<Dashboard />);
+    </script>
+</body>
+</html>
