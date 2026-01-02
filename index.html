@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Operativo Stellantis</title>
+    <title>Dashboard KPIs Stellantis</title>
     
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -11,18 +11,22 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-firestore-compat.js"></script>
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
-        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
-        .animate-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        body { background-color: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        // 1. CONFIGURACIÓN DE FIREBASE CON TUS NUEVAS CREDENCIALES
+        const { useState, useEffect, useMemo } = React;
+
+        // 1. CONFIGURACIÓN DE TU FIREBASE
         const firebaseConfig = {
             apiKey: "AIzaSyB5OvYG9qGFrwQGCIIk2ps6R7tBDrhHqrY",
             authDomain: "kpis-stellantis.firebaseapp.com",
@@ -39,126 +43,135 @@
         }
         const db = firebase.firestore();
 
-        // 2. COMPONENTE PRINCIPAL
-        const Dashboard = () => {
-            const [incidents, setIncidents] = React.useState([]);
-            const [loading, setLoading] = React.useState(true);
-            const [plantaFiltro, setPlantaFiltro] = React.useState('Todas');
+        // Componente de Iconos (Adaptación para Lucide en React sin imports)
+        const Icon = ({ name, size = 18, className = "" }) => {
+            return <i data-lucide={name} className={className} style={{ width: size, height: size }}></i>;
+        };
 
-            // Cargar datos de Firebase en tiempo real
-            React.useEffect(() => {
-                const unsubscribe = db.collection("datos_operativos")
-                    .orderBy("date", "desc")
-                    .onSnapshot((snapshot) => {
-                        const docs = [];
-                        snapshot.forEach(doc => docs.push({ id: doc.id, ...doc.data() }));
-                        setIncidents(docs);
-                        setLoading(false);
-                    });
-                return () => unsubscribe();
+        const Dashboard = () => {
+            const [incidents, setIncidents] = useState([]);
+            const [complaints, setComplaints] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [view, setView] = useState('Todas');
+
+            // 2. LEER DATOS EN TIEMPO REAL
+            useEffect(() => {
+                // Escuchar Incidencias
+                const unsubIncidents = db.collection("incidencias").orderBy("date", "desc").onSnapshot(snap => {
+                    const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setIncidents(data);
+                });
+
+                // Escuchar Quejas
+                const unsubComplaints = db.collection("quejas").orderBy("date", "desc").onSnapshot(snap => {
+                    const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setComplaints(data);
+                    setLoading(false);
+                    setTimeout(() => lucide.createIcons(), 100); // Refrescar iconos
+                });
+
+                return () => { unsubIncidents(); unsubComplaints(); };
             }, []);
 
-            // Cálculos de KPIs basados en los datos
-            const stats = React.useMemo(() => {
-                const filtered = plantaFiltro === 'Todas' ? incidents : incidents.filter(i => i.plant === plantaFiltro);
-                const total = filtered.length;
-                const totalImp = filtered.reduce((acc, curr) => acc + (parseInt(curr.imp) || 0), 0);
-                const avgService = total > 0 
-                    ? (filtered.reduce((acc, curr) => acc + (parseFloat(curr.serviceLevel) || 0), 0) / total).toFixed(1) 
-                    : 0;
-                return { total, totalImp, avgService };
-            }, [incidents, plantaFiltro]);
-
-            // Función para agregar datos (Simulación del botón del modal que pusiste)
-            const addData = async () => {
-                const date = new Date().toLocaleDateString('es-MX');
-                await db.collection("datos_operativos").add({
-                    date: date,
-                    plant: "Camiones",
-                    shift: "T1",
-                    imp: Math.floor(Math.random() * 5),
-                    noImp: Math.floor(Math.random() * 10),
-                    serviceLevel: 98.5,
-                    accidents: 0
-                });
+            // 3. AGREGAR DATOS (Lógica de guardado)
+            const handleAddIncident = async (data) => {
+                try {
+                    await db.collection("incidencias").add(data);
+                } catch (err) { console.error("Error al guardar:", err); }
             };
 
-            if (loading) return <div className="flex h-screen items-center justify-center text-slate-500 font-bold">Cargando Dashboard Stellantis...</div>;
+            const handleDelete = async (collection, id) => {
+                if(confirm("¿Seguro que deseas eliminar este registro?")) {
+                    await db.collection(collection).doc(id).delete();
+                }
+            };
+
+            // KPIs Calculados
+            const filteredData = view === 'Todas' ? incidents : incidents.filter(i => i.plant === view);
+            const totalImp = filteredData.reduce((acc, curr) => acc + (curr.imp || 0), 0);
+            const avgService = filteredData.length ? (filteredData.reduce((acc, curr) => acc + (curr.serviceLevel || 0), 0) / filteredData.length).toFixed(1) : 0;
+
+            if (loading) return <div className="h-screen flex items-center justify-center font-bold text-slate-500">Conectando a Firebase...</div>;
 
             return (
-                <div className="p-4 max-w-7xl mx-auto">
+                <div className="p-4 md:p-8 max-w-7xl mx-auto">
                     {/* Header */}
-                    <div className="flex justify-between items-center bg-slate-800 text-white p-6 rounded-xl shadow-lg mb-6">
+                    <header className="flex flex-col md:flex-row justify-between items-center mb-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                         <div>
-                            <h1 className="text-2xl font-bold">Dashboard Stellantis</h1>
-                            <p className="text-slate-400 text-sm">KPIs Operativos & Incidencias</p>
+                            <h1 className="text-2xl font-black text-slate-800">STELLANTIS <span className="text-rose-600">KPIs</span></h1>
+                            <p className="text-slate-500 text-sm font-medium">Panel de Control Operativo</p>
                         </div>
-                        <div className="flex gap-4">
-                             <select 
-                                className="bg-slate-700 text-white border-none rounded-lg px-4 py-2 text-sm"
-                                value={plantaFiltro}
-                                onChange={(e) => setPlantaFiltro(e.target.value)}
-                             >
+                        
+                        <div className="flex gap-3 mt-4 md:mt-0">
+                            <select 
+                                onChange={(e) => setView(e.target.value)}
+                                className="bg-slate-100 border-none rounded-xl px-4 py-2 text-sm font-bold text-slate-700 focus:ring-2 focus:ring-rose-500"
+                            >
                                 {['Todas', 'Camiones', 'Extensión', 'Van', 'Norte', 'Sur'].map(p => <option key={p} value={p}>{p}</option>)}
-                             </select>
-                             <button onClick={addData} className="bg-rose-600 hover:bg-rose-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
-                                + Nuevo Registro
-                             </button>
+                            </select>
+                            
+                            <button 
+                                onClick={() => alert("Aquí abrirías el Modal de carga")}
+                                className="bg-slate-800 hover:bg-black text-white px-5 py-2 rounded-xl text-sm font-bold transition-all shadow-lg"
+                            >
+                                Gestionar Datos
+                            </button>
                         </div>
-                    </div>
+                    </header>
 
-                    {/* KPIs Cards */}
+                    {/* KPI Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-slate-800">
-                            <h3 className="text-slate-500 text-xs font-bold uppercase">Total Registros</h3>
-                            <p className="text-3xl font-black text-slate-800">{stats.total}</p>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-rose-600">
+                            <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Imputables Acumulados</p>
+                            <p className="text-4xl font-black text-slate-800">{totalImp}</p>
                         </div>
-                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-rose-600">
-                            <h3 className="text-slate-500 text-xs font-bold uppercase">Imputables Totales</h3>
-                            <p className="text-3xl font-black text-rose-600">{stats.totalImp}</p>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-emerald-500">
+                            <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Nivel de Servicio Promedio</p>
+                            <p className="text-4xl font-black text-slate-800">{avgService}%</p>
                         </div>
-                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm border-l-4 border-l-emerald-600">
-                            <h3 className="text-slate-500 text-xs font-bold uppercase">Promedio Servicio</h3>
-                            <p className="text-3xl font-black text-emerald-600">{stats.avgService}%</p>
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-purple-500">
+                            <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">Quejas Activas</p>
+                            <p className="text-4xl font-black text-slate-800">{complaints.length}</p>
                         </div>
                     </div>
 
-                    {/* Tabla de Historial */}
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-700">
-                            Historial Operativo Reciente
+                    {/* Tabla de Incidencias */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                            <h2 className="font-bold text-slate-700 flex items-center gap-2">
+                                Historial de Operación
+                            </h2>
                         </div>
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
-                                    <th className="p-4 border-b">Fecha</th>
-                                    <th className="p-4 border-b">Planta / Turno</th>
-                                    <th className="p-4 border-b">Imputables</th>
-                                    <th className="p-4 border-b">No Imputables</th>
-                                    <th className="p-4 border-b">Servicio</th>
-                                    <th className="p-4 border-b">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {incidents.filter(i => plantaFiltro === 'Todas' || i.plant === plantaFiltro).map((item) => (
-                                    <tr key={item.id} className="hover:bg-slate-50 transition-colors border-b last:border-0 text-sm">
-                                        <td className="p-4 font-medium">{item.date}</td>
-                                        <td className="p-4 text-slate-600">{item.plant} - <span className="text-xs bg-slate-200 px-2 py-1 rounded">{item.shift}</span></td>
-                                        <td className="p-4 font-bold text-rose-600">{item.imp}</td>
-                                        <td className="p-4 text-slate-500">{item.noImp}</td>
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden max-w-[60px]">
-                                                    <div className="bg-emerald-500 h-full" style={{width: `${item.serviceLevel}%`}}></div>
-                                                </div>
-                                                <span className="font-bold">{item.serviceLevel}%</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-4 text-rose-600 cursor-pointer font-bold" onClick={() => db.collection("datos_operativos").doc(item.id).delete()}>Eliminar</td>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead>
+                                    <tr className="text-slate-400 font-bold border-b border-slate-100">
+                                        <th className="p-4">Fecha</th>
+                                        <th className="p-4">Planta</th>
+                                        <th className="p-4">Turno</th>
+                                        <th className="p-4 text-rose-600">Imp.</th>
+                                        <th className="p-4">Servicio</th>
+                                        <th className="p-4 text-right">Acción</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    {filteredData.map(item => (
+                                        <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                            <td className="p-4 font-semibold text-slate-700">{item.date}</td>
+                                            <td className="p-4 text-slate-600">{item.plant}</td>
+                                            <td className="p-4"><span className="bg-slate-200 px-2 py-1 rounded-md text-xs font-bold">{item.shift}</span></td>
+                                            <td className="p-4 font-bold text-rose-600">{item.imp}</td>
+                                            <td className="p-4 font-bold text-emerald-600">{item.serviceLevel}%</td>
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => handleDelete('incidencias', item.id)} className="text-slate-300 hover:text-red-500">
+                                                    Eliminar
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             );
